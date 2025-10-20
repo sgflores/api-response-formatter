@@ -5,6 +5,7 @@ namespace SgFlores\ApiResponseFormatter\Http\Middleware;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class FormatResponse
 {
@@ -25,16 +26,25 @@ class FormatResponse
 
         // Only format JSON responses for API routes
         if ($request->is($apiPattern) && $response instanceof JsonResponse) {
-            $data = $response->getData(true);
-            $statusCode = $response->getStatusCode();
-            $isSuccess = in_array($statusCode, $successCodes);
-            
-            // Check if response needs formatting
-            $needsFormatting = $this->needsFormatting($data, $isSuccess);
-            
-            if ($needsFormatting) {
-                $formattedData = $this->formatResponseData($data, $isSuccess);
-                $response->setData($formattedData);
+            try {
+                $data = $response->getData(true);
+                
+                // Skip if data is not an array
+                if (!is_array($data)) {
+                    return $response;
+                }
+                
+                $statusCode = $response->getStatusCode();
+                $isSuccess = in_array($statusCode, $successCodes);
+                
+                // Check if response needs formatting
+                if ($this->needsFormatting($data, $isSuccess)) {
+                    $formattedData = $this->formatResponseData($data, $isSuccess);
+                    $response->setData($formattedData);
+                }
+            } catch (\Exception $e) {
+                // Log error but don't break the response
+                Log::warning('FormatResponse middleware error: ' . $e->getMessage());
             }
         }
 
@@ -46,22 +56,22 @@ class FormatResponse
      */
     private function needsFormatting(array $data, bool $isSuccess): bool
     {
-        // If response doesn't have our standard format at all
+        // Response doesn't have standard format
         if (!isset($data['success'])) {
             return true;
         }
         
-        // If response has success but no data field
-        if (isset($data['success']) && !isset($data['data'])) {
+        // Response has success field but missing data field
+        if (!isset($data['data'])) {
             return true;
         }
         
-        // If response has nested errors in data object (like validation errors)
+        // Has nested errors in data object that need to be moved to top level
         if (isset($data['data']['errors']) && !isset($data['errors'])) {
             return true;
         }
         
-        // If response has errors at top level but they should be in data
+        // Has top-level errors but missing data field
         if (isset($data['errors']) && !isset($data['data'])) {
             return true;
         }
@@ -74,7 +84,7 @@ class FormatResponse
      */
     private function formatResponseData(array $data, bool $isSuccess): array
     {
-        // Extract message and errors from the original data
+        // Extract message and errors
         $message = $data['message'] ?? null;
         $errors = $data['errors'] ?? null;
         
@@ -83,51 +93,71 @@ class FormatResponse
             $errors = $data['data']['errors'];
         }
         
-        // Clean up the data - remove message and errors from data if they exist
-        $cleanData = $data;
-        unset($cleanData['message'], $cleanData['errors']);
+        // Extract pagination if present
+        $pagination = $data['meta']['pagination'] ?? $data['pagination'] ?? null;
         
-        // Remove nested errors from data if they exist
+        // Clean data by removing control fields
+        $cleanData = $this->cleanData($data);
+        
+        // Initialize response structure
+        $response = [
+            'success' => $isSuccess,
+            'message' => $message,
+            'data' => null
+        ];
+        
+        // Handle error responses
+        if ($errors && !empty($errors)) {
+            $response['errors'] = $errors;
+            // data remains null for error responses
+        }
+        // Handle success responses
+        else {
+            $response['data'] = $cleanData;
+            
+            // Add pagination for paginated responses
+            if ($pagination) {
+                $response['pagination'] = $pagination;
+            }
+        }
+        
+        return $response;
+    }
+    
+    /**
+     * Clean data by removing control fields and empty objects
+     */
+    private function cleanData(array $data): mixed
+    {
+        // Remove control fields
+        $cleanData = $data;
+        unset(
+            $cleanData['message'], 
+            $cleanData['errors'], 
+            $cleanData['meta'], 
+            $cleanData['pagination']
+        );
+        
+        // Remove nested errors from data object
         if (isset($cleanData['data']['errors'])) {
             unset($cleanData['data']['errors']);
         }
         
-        // Handle pagination if present
-        $pagination = null;
-        if (isset($cleanData['meta']['pagination']) || isset($cleanData['pagination'])) {
-            $pagination = $cleanData['meta']['pagination'] ?? $cleanData['pagination'] ?? null;
-            unset($cleanData['meta'], $cleanData['pagination']);
-        }
-        
-        // If cleanData is empty or only contains null values, set to null
-        if (empty($cleanData) || (count($cleanData) === 1 && reset($cleanData) === null)) {
-            $cleanData = null;
-        }
-        
-        // If data object is empty after removing errors, set to null
+        // Handle empty data object
         if (isset($cleanData['data']) && empty($cleanData['data'])) {
             $cleanData['data'] = null;
         }
         
-        $formattedData = [
-            'success' => $isSuccess,
-            'message' => $message,
-            'data' => $cleanData
-        ];
-        
-        // Handle validation errors - put them at top level for errors
-        if ($errors && !empty($errors)) {
-            $formattedData['errors'] = $errors;
-            $formattedData['data'] = null;
+        // If cleanData is empty or only contains null values, return null
+        if (empty($cleanData) || (count($cleanData) === 1 && reset($cleanData) === null)) {
+            return null;
         }
-        // Handle success responses with pagination
-        elseif ($isSuccess && $pagination) {
-            $formattedData['data'] = $cleanData;
-            $formattedData['pagination'] = $pagination;
-        }
-        // Keep message at top level for all responses
-        // No need to move message into data object
         
-        return $formattedData;
+        // If cleanData only contains an empty data object, return null
+        if (isset($cleanData['data']) && $cleanData['data'] === null && count($cleanData) === 1) {
+            return null;
+        }
+        
+        return $cleanData;
     }
 }

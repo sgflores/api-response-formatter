@@ -129,32 +129,32 @@ class FormatResponse
      */
     private function cleanData(array $data): mixed
     {
-        // Remove control fields
-        $cleanData = $data;
-        unset(
-            $cleanData['message'], 
-            $cleanData['errors'], 
-            $cleanData['meta'], 
-            $cleanData['pagination']
-        );
+        // If the response already has a 'data' key, extract its contents
+        if (isset($data['data']) && is_array($data['data'])) {
+            $cleanData = $data['data'];
+        } else {
+            // Remove control fields from the main data
+            $cleanData = $data;
+            unset(
+                $cleanData['message'], 
+                $cleanData['errors'], 
+                $cleanData['meta'], 
+                $cleanData['pagination']
+            );
+        }
         
         // Remove nested errors from data object
-        if (isset($cleanData['data']['errors'])) {
-            unset($cleanData['data']['errors']);
+        if (isset($cleanData['errors'])) {
+            unset($cleanData['errors']);
         }
         
-        // Handle empty data object
-        if (isset($cleanData['data']) && empty($cleanData['data'])) {
-            $cleanData['data'] = null;
-        }
-        
-        // If cleanData is empty or only contains null values, return null
-        if (empty($cleanData) || (count($cleanData) === 1 && reset($cleanData) === null)) {
+        // Handle empty data
+        if (empty($cleanData)) {
             return null;
         }
         
-        // If cleanData only contains an empty data object, return null
-        if (isset($cleanData['data']) && $cleanData['data'] === null && count($cleanData) === 1) {
+        // If cleanData only contains null values, return null
+        if (count($cleanData) === 1 && reset($cleanData) === null) {
             return null;
         }
         

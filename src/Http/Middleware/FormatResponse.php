@@ -76,6 +76,11 @@ class FormatResponse
             return true;
         }
         
+        // Check if this is a Laravel pagination response that needs formatting
+        if ($this->isLaravelPaginationResponse($data)) {
+            return true;
+        }
+        
         return false;
     }
 
@@ -93,12 +98,6 @@ class FormatResponse
             $errors = $data['data']['errors'];
         }
         
-        // Extract pagination if present
-        $pagination = $data['meta']['pagination'] ?? $data['pagination'] ?? null;
-        
-        // Clean data by removing control fields
-        $cleanData = $this->cleanData($data);
-        
         // Initialize response structure
         $response = [
             'success' => $isSuccess,
@@ -113,11 +112,23 @@ class FormatResponse
         }
         // Handle success responses
         else {
-            $response['data'] = $cleanData;
-            
-            // Add pagination for paginated responses
-            if ($pagination) {
-                $response['pagination'] = $pagination;
+            // Check if this is a Laravel pagination response
+            if ($this->isLaravelPaginationResponse($data)) {
+                $formattedPagination = $this->formatLaravelPagination($data);
+                $response['data'] = $formattedPagination['data'];
+                $response['pagination'] = $formattedPagination['pagination'];
+            } else {
+                // Extract pagination if present in meta or direct pagination field
+                $pagination = $data['meta']['pagination'] ?? $data['pagination'] ?? null;
+                
+                // Clean data by removing control fields
+                $cleanData = $this->cleanData($data);
+                $response['data'] = $cleanData;
+                
+                // Add pagination for paginated responses
+                if ($pagination) {
+                    $response['pagination'] = $pagination;
+                }
             }
         }
         
@@ -159,5 +170,57 @@ class FormatResponse
         }
         
         return $cleanData;
+    }
+    
+    /**
+     * Check if the response is a Laravel pagination response
+     */
+    private function isLaravelPaginationResponse(array $data): bool
+    {
+        // Laravel pagination responses have these specific keys
+        $paginationKeys = [
+            'current_page', 'data', 'first_page_url', 'from', 'last_page',
+            'last_page_url', 'links', 'next_page_url', 'path', 'per_page',
+            'prev_page_url', 'to', 'total'
+        ];
+        
+        // Check if all pagination keys are present
+        $hasPaginationKeys = count(array_intersect_key($data, array_flip($paginationKeys))) >= 8;
+        
+        // Also check if it has the 'data' key with array content
+        $hasDataArray = isset($data['data']) && is_array($data['data']);
+        
+        return $hasPaginationKeys && $hasDataArray;
+    }
+    
+    /**
+     * Format Laravel pagination response into standard API format
+     */
+    private function formatLaravelPagination(array $data): array
+    {
+        // Extract the actual data items
+        $items = $data['data'] ?? [];
+        
+        // Build pagination metadata
+        $pagination = [
+            'current_page' => $data['current_page'] ?? 1,
+            'per_page' => $data['per_page'] ?? 15,
+            'total' => $data['total'] ?? 0,
+            'last_page' => $data['last_page'] ?? 1,
+            'from' => $data['from'] ?? null,
+            'to' => $data['to'] ?? null,
+            'has_more_pages' => isset($data['next_page_url']) && !is_null($data['next_page_url']),
+            'links' => [
+                'first' => $data['first_page_url'] ?? null,
+                'last' => $data['last_page_url'] ?? null,
+                'prev' => $data['prev_page_url'] ?? null,
+                'next' => $data['next_page_url'] ?? null,
+            ]
+        ];
+        
+        return [
+            'data' => $items,
+            'pagination' => $pagination
+        ];
     }
 }

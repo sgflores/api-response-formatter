@@ -211,10 +211,8 @@ class FormatResponseTest extends TestCase
         
         $this->assertTrue($data['success']);
         $this->assertEquals([
-            'data' => [
-                ['id' => 1, 'name' => 'Item 1'],
-                ['id' => 2, 'name' => 'Item 2']
-            ]
+            ['id' => 1, 'name' => 'Item 1'],
+            ['id' => 2, 'name' => 'Item 2']
         ], $data['data']);
         $this->assertEquals([
             'current_page' => 1,

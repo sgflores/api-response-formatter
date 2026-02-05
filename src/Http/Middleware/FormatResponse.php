@@ -28,7 +28,6 @@ class FormatResponse
         if ($request->is($apiPattern) && $response instanceof JsonResponse) {
             try {
                 $data = $response->getData(true);
-                
                 // Skip if data is not an array
                 if (!is_array($data)) {
                     return $response;
@@ -60,8 +59,8 @@ class FormatResponse
         if (!isset($data['success'])) {
             return true;
         }
-        
-        // Response has success field but missing data field
+
+        // Response has success field but missing data field (isset is false when data is null)
         if (!isset($data['data'])) {
             return true;
         }
@@ -98,17 +97,18 @@ class FormatResponse
             $errors = $data['data']['errors'];
         }
         
-        // Initialize response structure
+        // Build response in standard order: data, success (and optional message/errors/pagination)
         $response = [
+            'data' => null,
             'success' => $isSuccess,
-            'message' => $message,
-            'data' => null
         ];
-        
+        if ($message !== null) {
+            $response['message'] = $message;
+        }
+
         // Handle error responses
         if ($errors && !empty($errors)) {
             $response['errors'] = $errors;
-            // data remains null for error responses
         }
         // Handle success responses
         else {
@@ -120,18 +120,17 @@ class FormatResponse
             } else {
                 // Extract pagination if present in meta or direct pagination field
                 $pagination = $data['meta']['pagination'] ?? $data['pagination'] ?? null;
-                
+
                 // Clean data by removing control fields
                 $cleanData = $this->cleanData($data);
                 $response['data'] = $cleanData;
-                
-                // Add pagination for paginated responses
+
                 if ($pagination) {
                     $response['pagination'] = $pagination;
                 }
             }
         }
-        
+
         return $response;
     }
     
@@ -140,19 +139,36 @@ class FormatResponse
      */
     private function cleanData(array $data): mixed
     {
-        // If the response already has a 'data' key, extract its contents
-        if (isset($data['data']) && is_array($data['data'])) {
+        // If the response already has a 'data' key (value may be null or any type), use it as payload
+        if (array_key_exists('data', $data)) {
             $cleanData = $data['data'];
-        } else {
-            // Remove control fields from the main data
-            $cleanData = $data;
-            unset(
-                $cleanData['message'], 
-                $cleanData['errors'], 
-                $cleanData['meta'], 
-                $cleanData['pagination']
-            );
+            // If payload is array, strip control fields from it; otherwise return as-is (e.g. null, object)
+            if (is_array($cleanData)) {
+                unset(
+                    $cleanData['message'],
+                    $cleanData['errors'],
+                    $cleanData['meta'],
+                    $cleanData['pagination'],
+                    $cleanData['success']
+                );
+                if (empty($cleanData)) {
+                    return null;
+                }
+                if (count($cleanData) === 1 && reset($cleanData) === null) {
+                    return null;
+                }
+            }
+            return $cleanData;
         }
+
+        // Remove control fields from the main data
+        $cleanData = $data;
+        unset(
+            $cleanData['message'],
+            $cleanData['errors'],
+            $cleanData['meta'],
+            $cleanData['pagination']
+        );
         
         // Remove nested errors from data object
         if (isset($cleanData['errors'])) {

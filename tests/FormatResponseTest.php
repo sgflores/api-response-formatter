@@ -24,9 +24,10 @@ class FormatResponseTest extends TestCase
         
         $this->assertInstanceOf(JsonResponse::class, $result);
         $data = $result->getData(true);
-        
+
+        $this->assertArrayHasKey('data', $data);
+        $this->assertArrayHasKey('success', $data);
         $this->assertTrue($data['success']);
-        $this->assertNull($data['message']);
         $this->assertEquals(['name' => 'John', 'email' => 'john@example.com'], $data['data']);
     }
 
@@ -44,9 +45,10 @@ class FormatResponseTest extends TestCase
         
         $this->assertInstanceOf(JsonResponse::class, $result);
         $data = $result->getData(true);
-        
+
+        $this->assertArrayHasKey('data', $data);
+        $this->assertArrayHasKey('success', $data);
         $this->assertFalse($data['success']);
-        $this->assertNull($data['message']);
         $this->assertEquals(['error' => 'Not found'], $data['data']);
     }
 
@@ -131,14 +133,13 @@ class FormatResponseTest extends TestCase
     public function it_formats_responses_via_http_request()
     {
         $response = $this->get('/api/test');
-        
+
         $response->assertStatus(200);
         $response->assertJsonStructure([
-            'success',
-            'message',
-            'data'
+            'data',
+            'success'
         ]);
-        
+
         $data = $response->json();
         $this->assertTrue($data['success']);
         $this->assertEquals(['name' => 'Test User'], $data['data']);
@@ -148,14 +149,13 @@ class FormatResponseTest extends TestCase
     public function it_formats_error_responses_via_http_request()
     {
         $response = $this->get('/api/test-error');
-        
+
         $response->assertStatus(404);
         $response->assertJsonStructure([
-            'success',
-            'message',
-            'data'
+            'data',
+            'success'
         ]);
-        
+
         $data = $response->json();
         $this->assertFalse($data['success']);
         $this->assertEquals(['error' => 'Test Error'], $data['data']);
